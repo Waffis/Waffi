@@ -1,0 +1,157 @@
+from flask import Flask, render_template, request, jsonify,redirect,flash,url_for
+import sqlite3
+import db
+from sentence_transformers import SentenceTransformer
+import faiss
+import numpy as np
+from fuzzywuzzy import process
+import re
+import os
+import secrets
+
+app = Flask(__name__)
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16 MB
+app.secret_key = secrets.token_hex(16)
+# تحميل النموذج وفهرسة المشاكل
+model = SentenceTransformer('all-MiniLM-L6-v2')
+
+problems = db.search_problem()
+
+problems_embedding = model.encode(problems)
+
+dimension = problems_embedding.shape[1]
+faiss_index = faiss.IndexHNSWFlat(dimension, 32)
+faiss_index.add(problems_embedding)
+
+def find_best_match(user_input):
+    if len(user_input) < 5 or not re.search(r"[a-zA-Z0-9]", user_input):
+        return None, 0
+    
+    user_embedding = model.encode([user_input])
+    distances, indices = faiss_index.search(user_embedding, 1)
+    if indices[0][0] == -1 or len(problems) == 0:
+        return None, 0  
+
+    best_score = 1 - (distances[0][0] / 2)
+    best_match = problems[indices[0][0]]
+    
+    if best_score > 0.5:
+        return best_match, best_score
+    else:
+        best_match, best_score = process.extractOne(user_input, problems)
+        if best_score > 85:
+            return best_match, best_score
+        else:
+            return None, 0
+
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+@app.route('/chat', methods=['POST'])
+def chat():
+    user_input = request.json.get('input')
+    
+    if not user_input:
+        return jsonify({"response": "Please enter your problem."})
+    
+    if user_input.strip().lower().startswith("buprn") and " " not in user_input:
+        add_printer(user_input)
+        return jsonify({"response": "Printer added successfully."})
+    
+    if user_input.strip().lower().startswith(("hess", "schindler", "prinzing")) and " " not in user_input:
+        netzwerklaufwerk(user_input)
+        return jsonify({"response": "Network drive configured successfully."})
+    
+    best_match, best_score = find_best_match(user_input.strip())
+    if best_match and best_score > 0.5:
+        solution, img_path = db.search_soulution(best_match)
+        response = f"🤖: {solution}"
+        if img_path:
+            response += f"\n📷: <a href='{img_path}' target='_blank'>click here to show the File</a>"
+
+        return jsonify({"response": response})
+    else:
+        return jsonify({"response": "🤖: ❌ No solution found."})
+
+@app.route('/settings',methods=["GET", "POST"])
+def setting():
+   if request.method=="POST":
+       problem=request.form['problem']
+       solution= request.form['solution']
+       path=request.form['filePath']
+       problems= db.search_problem()
+       for p in problems:
+            if problem == p:
+                flash("This problem already exists", "error")
+                return redirect(url_for('setting'))
+       db.insert_db(problem,solution,path)
+       flash("The problem has been added successfully", "success")
+       return redirect(url_for('setting'))
+       
+   return render_template('settings.html')
+
+@app.route('/problems_edit',  methods=["GET", "POST"])
+def problems_edit():
+    infos =db.borwes_db()
+    if request.method=='POST':
+        p=request.json.get('problemid')
+        db.delete_problem(p)
+        return jsonify({"success": True}), 200
+    return render_template('problems_edit.html', infos=infos)
+
+
+@app.route('/edit',  methods=[ "GET","POST"])
+def edit():
+    # problem=request.args.get('problem')
+    if request.method =='GET':
+        p=request.args.get('problem')
+        solution, path = db.search_soulution(p)
+        
+        
+        return render_template('edit.html', problem=p,solution=solution,path=path)
+    if request.method == 'POST':
+        
+        data = request.get_json()
+        old_problem = data.get('old_problem')
+        new_problem = data.get('new_problem')
+        new_solution = data.get('new_solution')
+        new_path = data.get('new_path')
+
+        if db.update_problem(old_problem, new_problem, new_solution, new_path):
+            flash("The problem has been updated successfully", "success")
+            return jsonify({"success": True, "new_problem": new_problem, "new_solution": new_solution, "new_path": new_path})
+
+    return render_template('edit.html')
+    
+
+def add_printer(printer_name):
+    if not printer_name.lower().startswith("buprn"):
+        return "Invalid printer name!"
+    
+    printer_name = fr"\\bu-srv55\{printer_name}"
+    command = f'rundll32 printui.dll,PrintUIEntry /in /n "{printer_name}"'
+    result = os.system(command)
+    
+    if result == 0:
+        return f"Printer '{printer_name}' added successfully."
+    else:
+        return "Error adding printer."
+
+def netzwerklaufwerk(drive_name):
+    command = None
+    if drive_name.lower().startswith("hess") and " " not in drive_name:
+        command = r"net use I: \\hess.intern\hessgroup"
+    elif drive_name.lower().startswith("prinzing") and " " not in drive_name:
+        command = r"net use s: \\hess.intern\pp"
+    elif drive_name.lower().startswith("schindler") and " " not in drive_name:
+        command = r"net use s: \\sr.hess.intern\schindler"
+    
+    if command:
+        os.system(command)
+        return "Network drive configured successfully."
+    else:
+        return "Invalid network drive name."
+
+if __name__ == '__main__':
+    app.run(debug=True)

@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>عرض المشاكل والحلول</title>
+    <!-- إضافة رابط Bootstrap -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+
+<div class="container my-5">
+    <!-- عنوان الصفحة -->
+    <h2 class="text-center mb-4">Browse all problems</h2>
+
+    <!-- عرض قائمة المشاكل -->
+    <div class="row">
+        {% for info in infos %}
+        <div class="col-md-4 mb-4">
+            <div class="card shadow-sm">
+                <div class="card-body">
+                    <!-- عرض المشكلة -->
+                    <h5 class="card-title">{{ info[0] }}</h5>
+                   
+                  
+                    
+                    <button type="button" class="btn btn-danger" onclick="deleteProblem('{{ info[0] }}')">Delete</button>
+
+                    <button type="button" class="btn btn-warning" onclick="editproblem('{{info[0]}}')">Edit</button>
+                   
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <!-- زر الرجوع إلى الصفحة الرئيسية -->
+    <div class="text-center mt-4">
+        <a href="{{ url_for('setting') }}" class="btn btn-secondary">Back to Panel </a>
+    </div>
+</div>
+
+<!-- إضافة مكتبة JavaScript الخاصة بـ Bootstrap -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+function deleteProblem(info){
+   
+fetch('/problems_edit',{method:'POST',headers:{'Content-Type': 'application/json'},body:JSON.stringify({ problemid: info })})
+.then(response => {
+        if (response.ok) {
+            // إعادة تحميل الصفحة بعد الحذف
+            location.reload();    
+        } else {
+            alert('Error !');
+        }
+    })
+    .catch(error => console.error('error:', error));
+}
+
+
+function editproblem(problem, solution, path) {
+     window.location.href = `/edit?problem=${encodeURIComponent(problem)}`;
+    // fetch('/edit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({alt_p:problem,alt_s:solution,alt_path:path})})
+    // .then(respone => {
+    //     if (respone.ok){
+    //         window.location.href =`/edit`
+    //     }
+    // })
+    
+}
+
+
+
+
+
+
+</script>
+
+</body>
+</html>
